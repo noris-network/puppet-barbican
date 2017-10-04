@@ -41,28 +41,32 @@
 #     zmq (for zeromq)
 #   Defaults to $::os_service_default
 #
-# [*rabbit_host*]
-#   (optional) Location of rabbitmq installation.
+# [*default_transport_url*]
+#   (optional) Connection url for oslo messaging backend. An example rabbit url
+#   would be, rabbit://user:pass@host:port/virtual_host
 #   Defaults to $::os_service_default
 #
-# [*rabbit_hosts*]
-#   (optional) List of clustered rabbit servers.
+# [*rpc_response_timeout*]
+#  (Optional) Seconds to wait for a response from a call.
+#  Defaults to $::os_service_default
+#
+# [*control_exchange*]
+#   (Optional) The default exchange under which topics are scoped. May be
+#   overridden by an exchange name specified in the transport_url
+#   option.
 #   Defaults to $::os_service_default
 #
-# [*rabbit_port*]
-#   (optional) Port for rabbitmq instance.
+# [*notification_transport_url*]
+#   (optional) Connection url for oslo messaging notifications backend. An
+#   example rabbit url would be, rabbit://user:pass@host:port/virtual_host
 #   Defaults to $::os_service_default
 #
-# [*rabbit_password*]
-#   (optional) Password used to connect to rabbitmq.
+# [*notification_driver*]
+#   (optional) Driver to use for oslo messaging notifications backend.
 #   Defaults to $::os_service_default
 #
-# [*rabbit_userid*]
-#   (optional) User used to connect to rabbitmq.
-#   Defaults to $::os_service_default
-#
-# [*rabbit_virtual_host*]
-#   (optional) The RabbitMQ virtual host.
+# [*notification_topics*]
+#   (optional) Topics to use for oslo messaging notifications backend.
 #   Defaults to $::os_service_default
 #
 # [*rabbit_use_ssl*]
@@ -214,21 +218,36 @@
 #   (optional) CA certificate file to use to verify connecting clients
 #   Defaults to $::os_service_default
 #
+# [*enable_proxy_headers_parsing*]
+#   (Optional) Enable paste middleware to handle SSL requests through
+#   HTTPProxyToWSGI middleware.
+#   Defaults to $::os_service_default.
+#
 # === DEPRECATED PARAMETERS
 #
-# [*keystone_password*]
-#   (optional) DEPRECATED. Use barbican::keystone::authtoken::password
-#   instead.
-#   Defaults to undef
+# [*rabbit_host*]
+#   (optional) Location of rabbitmq installation.
+#   Defaults to $::os_service_default
 #
-# [*auth_url*]
-#   (optional) DEPRECATED. Use barbican::keystone::authtoken::auth_url
-#   instead.
-#   Defaults to undef
+# [*rabbit_hosts*]
+#   (optional) List of clustered rabbit servers.
+#   Defaults to $::os_service_default
 #
-# [*auth_type*]
-#   (optional) DEPRECATED. Use auth_strategy instead.
-#   Defaults to undef
+# [*rabbit_port*]
+#   (optional) Port for rabbitmq instance.
+#   Defaults to $::os_service_default
+#
+# [*rabbit_password*]
+#   (optional) Password used to connect to rabbitmq.
+#   Defaults to $::os_service_default
+#
+# [*rabbit_userid*]
+#   (optional) User used to connect to rabbitmq.
+#   Defaults to $::os_service_default
+#
+# [*rabbit_virtual_host*]
+#   (optional) The RabbitMQ virtual host.
+#   Defaults to $::os_service_default
 #
 class barbican::api (
   $ensure_package                                = 'present',
@@ -239,12 +258,12 @@ class barbican::api (
   $max_allowed_secret_in_bytes                   = $::os_service_default,
   $max_allowed_request_size_in_bytes             = $::os_service_default,
   $rpc_backend                                   = $::os_service_default,
-  $rabbit_host                                   = $::os_service_default,
-  $rabbit_hosts                                  = $::os_service_default,
-  $rabbit_password                               = $::os_service_default,
-  $rabbit_port                                   = $::os_service_default,
-  $rabbit_userid                                 = $::os_service_default,
-  $rabbit_virtual_host                           = $::os_service_default,
+  $default_transport_url                         = $::os_service_default,
+  $rpc_response_timeout                          = $::os_service_default,
+  $control_exchange                              = $::os_service_default,
+  $notification_transport_url                    = $::os_service_default,
+  $notification_driver                           = $::os_service_default,
+  $notification_topics                           = $::os_service_default,
   $rabbit_use_ssl                                = $::os_service_default,
   $rabbit_heartbeat_timeout_threshold            = $::os_service_default,
   $rabbit_heartbeat_rate                         = $::os_service_default,
@@ -277,30 +296,31 @@ class barbican::api (
   $cert_file                                     = $::os_service_default,
   $key_file                                      = $::os_service_default,
   $service_name                                  = 'barbican-api',
+  $enable_proxy_headers_parsing                  = $::os_service_default,
   # DEPRECATED
-  $auth_type                                     = undef,
-  $keystone_password                             = undef,
-  $auth_url                                      = undef,
+  $rabbit_host                                   = $::os_service_default,
+  $rabbit_hosts                                  = $::os_service_default,
+  $rabbit_password                               = $::os_service_default,
+  $rabbit_port                                   = $::os_service_default,
+  $rabbit_userid                                 = $::os_service_default,
+  $rabbit_virtual_host                           = $::os_service_default,
 ) inherits barbican::params {
 
 
+  include ::barbican::deps
   include ::barbican::db
   include ::barbican::api::logging
   include ::barbican::client
 
-  if $auth_type {
-    warning('auth_type is deprecated and will be removed, use auth_strategy instead')
-    $auth_strategy_real = $auth_type
-  } else {
-    $auth_strategy_real = $auth_strategy
-  }
-
-  if $keystone_password {
-    warning('keystone_password is deprecated, use barbican::keystone::authtoken::password instead.')
-  }
-
-  if $auth_url {
-    warning('auth_url is deprecated, use barbican::keystone::authtoken::auth_url instead.')
+  if !is_service_default($rabbit_host) or
+    !is_service_default($rabbit_hosts) or
+    !is_service_default($rabbit_password) or
+    !is_service_default($rabbit_port) or
+    !is_service_default($rabbit_userid) or
+    !is_service_default($rabbit_virtual_host) {
+    warning("barbican::rabbit_host, barbican::rabbit_hosts, barbican::rabbit_password, \
+barbican::rabbit_port, barbican::rabbit_userid and barbican::rabbit_virtual_host are \
+deprecated. Please use barbican::default_transport_url instead.")
   }
 
   # TODO: Remove the posix users and permissions and merge this definition
@@ -311,8 +331,8 @@ class barbican::api (
     mode    => '0770',
     owner   => 'root',
     group   => 'barbican',
-    require => Package['barbican-api'],
-    notify  => Service[$service_name],
+    require => Anchor['barbican::install::end'],
+    notify  => Anchor['barbican::service::end'],
   }
 
   package { 'barbican-api':
@@ -320,12 +340,6 @@ class barbican::api (
     name   => $::barbican::params::api_package_name,
     tag    => ['openstack', 'barbican-package'],
   }
-
-  Package['barbican-api']                ~> Service[$service_name]
-  Barbican_config<||>                    ~> Service[$service_name]
-  Barbican_api_paste_ini<||>             ~> Service[$service_name]
-  Package<| tag == 'barbican-package' |> -> Barbican_config<||>
-  Package<| tag == 'barbican-package' |> -> Barbican_api_paste_ini<||>
 
   # basic service config
   if $host_href == undef {
@@ -365,6 +379,18 @@ class barbican::api (
     barbican_config { 'DEFAULT/rpc_backend': value => $rpc_backend }
   }
 
+  oslo::messaging::default { 'barbican_config':
+    transport_url        => $default_transport_url,
+    rpc_response_timeout => $rpc_response_timeout,
+    control_exchange     => $control_exchange,
+  }
+
+  oslo::messaging::notifications { 'barbican_config':
+    driver        => $notification_driver,
+    transport_url => $notification_transport_url,
+    topics        => $notification_topics,
+  }
+
   # queue options
   barbican_config {
     'queue/enable':      value => $enable_queue;
@@ -391,7 +417,7 @@ class barbican::api (
   }
 
   # keystone config
-  if $auth_strategy_real == 'keystone' {
+  if $auth_strategy == 'keystone' {
 
     include ::barbican::keystone::authtoken
 
@@ -466,9 +492,9 @@ class barbican::api (
       path  => '/etc/barbican/gunicorn-config.py',
       line  => "bind = '${bind_host}:${bind_port}'",
       match => '.*bind = .*',
+      tag   => 'modify-bind-port',
     }
 
-    Package<| tag == 'barbican-package' |> -> File_line['Modify bind_port in gunicorn-config.py'] ~> Service[$service_name]
   } elsif $service_name == 'httpd' {
     include ::apache::params
     # Debian/Ubuntu do not have a barbican-api and this will error out on them.
@@ -484,6 +510,10 @@ class barbican::api (
     }
   } else {
     fail('Invalid service_name. Use barbican-api for stand-alone or httpd')
+  }
+
+  oslo::middleware { 'barbican_config':
+    enable_proxy_headers_parsing => $enable_proxy_headers_parsing,
   }
 
 }

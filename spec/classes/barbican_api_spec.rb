@@ -28,6 +28,12 @@ describe 'barbican::api' do
         :bind_host                                     => '0.0.0.0',
         :bind_port                                     => '9311',
         :rpc_backend                                   => 'rabbit',
+        :default_transport_url                         => '<SERVICE DEFAULT>',
+        :rpc_response_timeout                          => '<SERVICE DEFAULT>',
+        :control_exchange                              => '<SERVICE DEFAULT>',
+        :notification_transport_url                    => '<SERVICE DEFAULT>',
+        :notification_driver                           => '<SERVICE DEFAULT>',
+        :notification_topics                           => '<SERVICE DEFAULT>',
         :rabbit_host                                   => '<SERVICE_DEFAULT>',
         :rabbit_hosts                                  => ['<SERVICE DEFAULT>'],
         :rabbit_password                               => '<SERVICE DEFAULT>',
@@ -61,6 +67,7 @@ describe 'barbican::api' do
         :retry_scheduler_initial_delay_seconds         => '<SERVICE DEFAULT>',
         :retry_scheduler_periodic_interval_max_seconds => '<SERVICE DEFAULT>',
         :service_name                                  => platform_params[:service_name],
+        :enable_proxy_headers_parsing                  => '<SERVICE DEFAULT>',
       }
     end
 
@@ -68,6 +75,12 @@ describe 'barbican::api' do
         :bind_host                                     => '127.0.0.1',
         :bind_port                                     => '9312',
         :rpc_backend                                   => 'rabbit',
+        :default_transport_url                         => 'rabbit://bugs:bugs_bunny@localhost:1234/rabbithost',
+        :rpc_response_timeout                          => '120',
+        :control_exchange                              => 'barbican',
+        :notification_transport_url                    => 'rabbit://bugs:bugs_bunny@localhost:1234/rabbithost',
+        :notification_driver                           => 'kombu',
+        :notification_topics                           => 'notifications',
         :rabbit_host                                   => 'rabbithost',
         :rabbit_hosts                                  => ['rabbithost:1234'],
         :rabbit_password                               => 'bugs_bunny',
@@ -99,6 +112,7 @@ describe 'barbican::api' do
         :retry_scheduler_periodic_interval_max_seconds => 20.0,
         :max_allowed_secret_in_bytes                   => 20000,
         :max_allowed_request_size_in_bytes             => 2000000,
+        :enable_proxy_headers_parsing                  => false,
       }
     ].each do |param_set|
       describe "when #{param_set == {} ? "using default" : "specifying"} class parameters" do
@@ -119,8 +133,9 @@ describe 'barbican::api' do
           "http://${::fqdn}:$param_hash[:bind_port]"
         end
 
-        it { is_expected.to contain_class 'barbican::api::logging' }
-        it { is_expected.to contain_class 'barbican::db' }
+        it { is_expected.to contain_class('barbican::deps') }
+        it { is_expected.to contain_class('barbican::api::logging') }
+        it { is_expected.to contain_class('barbican::db') }
 
         it { is_expected.to contain_package('barbican-api').with(
             :tag => ['openstack', 'barbican-package'],
@@ -147,6 +162,12 @@ describe 'barbican::api' do
 
         it 'configures rabbit' do
           is_expected.to contain_barbican_config('DEFAULT/rpc_backend').with_value(param_hash[:rpc_backend])
+          is_expected.to contain_barbican_config('DEFAULT/transport_url').with_value(param_hash[:default_transport_url])
+          is_expected.to contain_barbican_config('DEFAULT/rpc_response_timeout').with_value(param_hash[:rpc_response_timeout])
+          is_expected.to contain_barbican_config('DEFAULT/control_exchange').with_value(param_hash[:control_exchange])
+          is_expected.to contain_barbican_config('oslo_messaging_notifications/transport_url').with_value(param_hash[:notification_transport_url])
+          is_expected.to contain_barbican_config('oslo_messaging_notifications/driver').with_value(param_hash[:notification_driver])
+          is_expected.to contain_barbican_config('oslo_messaging_notifications/topics').with_value(param_hash[:notification_topics])
           is_expected.to contain_barbican_config('oslo_messaging_rabbit/rabbit_hosts').with_value(param_hash[:rabbit_hosts])
           is_expected.to contain_barbican_config('oslo_messaging_rabbit/rabbit_password').with_value(param_hash[:rabbit_password]).with_secret(true)
           is_expected.to contain_barbican_config('oslo_messaging_rabbit/rabbit_userid').with_value(param_hash[:rabbit_userid])
@@ -174,6 +195,19 @@ describe 'barbican::api' do
             .with_value(param_hash[:enabled_certificate_event_plugins])
         end
       end
+    end
+
+    describe 'with enable_proxy_headers_parsing' do
+      let :pre_condition do
+          'class { "barbican::keystone::authtoken": password => "secret", }
+           include ::apache'
+      end
+
+      let :params do
+        default_params.merge!({:enable_proxy_headers_parsing => true })
+      end
+
+      it { is_expected.to contain_barbican_config('oslo_middleware/enable_proxy_headers_parsing').with_value(true) }
     end
 
     describe 'with SSL socket options set' do
@@ -212,6 +246,7 @@ describe 'barbican::api' do
       it { is_expected.to contain_barbican_config('DEFAULT/cert_file').with_value('<SERVICE DEFAULT>') }
       it { is_expected.to contain_barbican_config('DEFAULT/key_file').with_value('<SERVICE DEFAULT>') }
     end
+  end
 
     describe 'with SSL socket options set wrongly configured' do
       let :pre_condition do
@@ -248,7 +283,15 @@ describe 'barbican::api' do
         is_expected.to contain_class('barbican::keystone::authtoken')
       end
     end
-  end
+    context 'on redhat systems eventlet service disabled' do
+      describe 'with disabled service managing' do
+        let :params do
+          {
+            :manage_service => false,
+            :enabled        => false,
+            :auth_strategy  => 'keystone',
+          }
+        end
 
   shared_examples_for 'barbican api redhat' do
     let :param_hash do
@@ -308,7 +351,7 @@ describe 'barbican::api' do
       case facts[:osfamily]
       when 'RedHat'
         let (:platform_params) do
-          { :service_name => 'barbican-api' } 
+          { :service_name => 'barbican-api' }
         end
         it_behaves_like 'barbican api redhat'
       when 'Debian'

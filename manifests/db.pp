@@ -60,6 +60,8 @@ class barbican::db (
   $database_db_max_retries = $::os_service_default,
 ) {
 
+  include ::barbican::deps
+
   validate_re($database_connection,
     '^(sqlite|mysql(\+pymysql)?|postgresql):\/\/(\S+:\S+@\S+\/\S+)?')
 
@@ -75,7 +77,6 @@ class barbican::db (
   }
 
   # TODO(aschultz): Remove this config once barbican properly leverages oslo
-  $database_pool_size_real = pick($::barbican::database_pool_size, $database_pool_size)
   barbican_config {
     'DEFAULT/sql_connection':        value => $database_connection, secret => true;
     'DEFAULT/sql_idle_timeout':      value => $database_idle_timeout;

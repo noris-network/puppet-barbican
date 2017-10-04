@@ -179,15 +179,17 @@
 #   reduce performance. Only valid for PKI tokens. Integer value
 #   Defaults to $::os_service_default.
 #
-# [*signing_dir*]
-#   (Optional) Directory used to cache files related to PKI tokens.
-#   Defaults to $::os_service_default.
-#
 # [*token_cache_time*]
 #   (Optional) In order to prevent excessive effort spent validating tokens,
 #   the middleware caches previously-seen tokens for a configurable duration
 #   (in seconds). Set to -1 to disable caching completely. Integer value
 #   Defaults to $::os_service_default.
+#
+# DEPRECATED PARAMETERS
+#
+# [*signing_dir*]
+#   (Optional) Directory used to cache files related to PKI tokens.
+#   Defaults to undef
 #
 class barbican::keystone::authtoken(
   $password                       = $::os_service_default,
@@ -224,22 +226,26 @@ class barbican::keystone::authtoken(
   $manage_memcache_package        = false,
   $region_name                    = $::os_service_default,
   $revocation_cache_time          = $::os_service_default,
-  $signing_dir                    = $::os_service_default,
   $token_cache_time               = $::os_service_default,
+  # DEPRECATED PARAMETERS
+  $signing_dir                    = undef,
 ) {
 
-  if is_service_default($password) and ! $::barbican::api::keystone_password {
+  include ::barbican::deps
+
+  if is_service_default($password) {
     fail('Please set password for barbican service user')
   }
 
-  $password_real = pick($::barbican::api::keystone_password, $password)
-  $auth_url_real = pick($::barbican::api::auth_url, $auth_url)
+  if $signing_dir {
+    warning('signing_dir parameter is deprecated, has no effect and will be removed in the P release.')
+  }
 
   keystone::resource::authtoken { 'barbican_config':
     username                       => $username,
-    password                       => $password_real,
+    password                       => $password,
     project_name                   => $project_name,
-    auth_url                       => $auth_url_real,
+    auth_url                       => $auth_url,
     auth_uri                       => $auth_uri,
     auth_version                   => $auth_version,
     auth_type                      => $auth_type,
@@ -270,7 +276,6 @@ class barbican::keystone::authtoken(
     manage_memcache_package        => $manage_memcache_package,
     region_name                    => $region_name,
     revocation_cache_time          => $revocation_cache_time,
-    signing_dir                    => $signing_dir,
     token_cache_time               => $token_cache_time,
   }
 }

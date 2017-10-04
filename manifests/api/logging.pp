@@ -22,7 +22,7 @@
 #
 #  [*log_dir*]
 #    (optional) Directory where logs should be stored.
-#    If set to boolean false, it will not log to any directory.
+#    If set to $::os_service_default, it will not log to any directory.
 #    Defaults to '/var/log/barbican'
 #
 #  [*log_file*]
@@ -112,6 +112,8 @@ class barbican::api::logging(
   $instance_uuid_format          = $::os_service_default,
   $log_date_format               = $::os_service_default,
 ) {
+
+  include ::barbican::deps
 
   oslo::log { 'barbican_config':
     debug                         => $debug,
