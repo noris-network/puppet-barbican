@@ -453,14 +453,6 @@ the future release. Please use barbican::api::package_ensure instead.")
   }
 
 
-  if $manage_service {
-    if $enabled {
-      $service_ensure = 'running'
-    } else {
-      $service_ensure = 'stopped'
-    }
-  }
-
   # set value to have the server auto-create the database on startup
   # instead of using db_sync
   barbican_config { 'DEFAULT/db_auto_create': value => $db_auto_create }
@@ -485,41 +477,49 @@ the future release. Please use barbican::api::package_ensure instead.")
     include ::barbican::db::sync
   }
 
-  if $service_name == 'barbican-api' {
-    if $::osfamily == 'Debian' {
-      fail('On Debian family the service_name must be set to httpd as there is no eventlet init script.')
-    }
-    service { 'barbican-api':
-      ensure     => $service_ensure,
-      name       => $::barbican::params::api_service_name,
-      enable     => $enabled,
-      hasstatus  => true,
-      hasrestart => true,
-      tag        => 'barbican-service',
+  if $manage_service {
+    if $enabled {
+      $service_ensure = 'running'
+    } else {
+      $service_ensure = 'stopped'
     }
 
-    file_line { 'Modify bind_port in gunicorn-config.py':
-      path  => '/etc/barbican/gunicorn-config.py',
-      line  => "bind = '${bind_host}:${bind_port}'",
-      match => '.*bind = .*',
-      tag   => 'modify-bind-port',
-    }
-
-  } elsif $service_name == 'httpd' {
-    include ::apache::params
-    # Debian/Ubuntu do not have a barbican-api and this will error out on them.
-    if $::osfamily == 'RedHat' {
-      service { 'barbican-api':
-        ensure => 'stopped',
-        name   => $::barbican::params::api_service_name,
-        enable => false,
-        tag    => 'barbican-service',
+    if $service_name == 'barbican-api' {
+      if $::osfamily == 'Debian' {
+        fail('On Debian family the service_name must be set to httpd as there is no eventlet init script.')
       }
-      # we need to make sure barbican-api is stopped before trying to start apache
-      Service['barbican-api'] -> Service[$service_name]
+      service { 'barbican-api':
+        ensure     => $service_ensure,
+        name       => $::barbican::params::api_service_name,
+        enable     => $enabled,
+        hasstatus  => true,
+        hasrestart => true,
+        tag        => 'barbican-service',
+      }
+  
+      file_line { 'Modify bind_port in gunicorn-config.py':
+        path  => '/etc/barbican/gunicorn-config.py',
+        line  => "bind = '${bind_host}:${bind_port}'",
+        match => '.*bind = .*',
+        tag   => 'modify-bind-port',
+      }
+  
+    } elsif $service_name == 'httpd' {
+      include ::apache::params
+      # Debian/Ubuntu do not have a barbican-api and this will error out on them.
+      if $::osfamily == 'RedHat' {
+        service { 'barbican-api':
+          ensure => 'stopped',
+          name   => $::barbican::params::api_service_name,
+          enable => false,
+          tag    => 'barbican-service',
+        }
+        # we need to make sure barbican-api is stopped before trying to start apache
+        Service['barbican-api'] -> Service[$service_name]
+      }
+    } else {
+      fail('Invalid service_name. Use barbican-api for stand-alone or httpd')
     }
-  } else {
-    fail('Invalid service_name. Use barbican-api for stand-alone or httpd')
   }
 
   oslo::middleware { 'barbican_config':
