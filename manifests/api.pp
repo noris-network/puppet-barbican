@@ -121,12 +121,26 @@
 # [*enabled_secretstore_plugins*]
 #   (optional) Enabled secretstore plugins. Multiple plugins
 #   are defined in a list eg. ['store_crypto', dogtag_crypto']
+#   Used when multiple_secret_stores_enabled is not set to true.
 #   Defaults to $::os_service_default
 #
 # [*enabled_crypto_plugins*]
 #   (optional) Enabled crypto_plugins.  Multiple plugins
 #   are defined in a list eg. ['simple_crypto','p11_crypto']
+#   Used when multiple_secret_stores_enabled is not set to true.
 #   Defaults to $::os_service_default
+#
+# [*enabled_secret_stores*]
+#   (optional) Enabled secretstores. This is the configuration
+#   parameters when multiple plugin configuration is used.
+#   Suffixes are defined in a comma separated list eg.
+#   'simple_crypto,dogtag,kmip,pkcs11'
+#   Defaults to 'simple_crypto'
+#
+# [*multiple_secret_stores_enabled*]
+#   (optional) Enabled crypto_plugins.  Multiple plugins
+#   are defined in a list eg. ['simple_crypto','p11_crypto']
+#   Defaults to false
 #
 # [*enabled_certificate_plugins*]
 #   (optional) Enabled certificate plugins as a list.
@@ -158,6 +172,12 @@
 # [*kombu_reconnect_delay*]
 #   (optional) How long to wait before reconnecting in response to an AMQP
 #   consumer cancel notification.
+#   Defaults to $::os_service_default
+#
+# [*kombu_failover_strategy*]
+#   (Optional) Determines how the next RabbitMQ node is chosen in case the one
+#   we are currently connected to becomes unavailable. Takes effect only if
+#   more than one RabbitMQ node is provided in config. (string value)
 #   Defaults to $::os_service_default
 #
 # [*kombu_compression*]
@@ -281,6 +301,8 @@ class barbican::api (
   $retry_scheduler_periodic_interval_max_seconds = $::os_service_default,
   $enabled_secretstore_plugins                   = $::os_service_default,
   $enabled_crypto_plugins                        = $::os_service_default,
+  $enabled_secret_stores                         = 'simple_crypto',
+  $multiple_secret_stores_enabled                = false,
   $enabled_certificate_plugins                   = $::os_service_default,
   $enabled_certificate_event_plugins             = $::os_service_default,
   $kombu_ssl_ca_certs                            = $::os_service_default,
@@ -288,6 +310,7 @@ class barbican::api (
   $kombu_ssl_keyfile                             = $::os_service_default,
   $kombu_ssl_version                             = $::os_service_default,
   $kombu_reconnect_delay                         = $::os_service_default,
+  $kombu_failover_strategy                       = $::os_service_default,
   $kombu_compression                             = $::os_service_default,
   $auth_strategy                                 = 'keystone',
   $manage_service                                = true,
@@ -377,6 +400,7 @@ the future release. Please use barbican::api::package_ensure instead.")
     heartbeat_timeout_threshold => $rabbit_heartbeat_timeout_threshold,
     heartbeat_rate              => $rabbit_heartbeat_rate,
     kombu_reconnect_delay       => $kombu_reconnect_delay,
+    kombu_failover_strategy     => $kombu_failover_strategy,
     amqp_durable_queues         => $amqp_durable_queues,
     kombu_compression           => $kombu_compression,
     kombu_ssl_ca_certs          => $kombu_ssl_ca_certs,
@@ -418,12 +442,25 @@ the future release. Please use barbican::api::package_ensure instead.")
     'DEFAULT/max_allowed_request_size_in_bytes':     value => $max_allowed_request_size_in_bytes;
   }
 
+  if $multiple_secret_stores_enabled and !is_service_default($enabled_secretstore_plugins) {
+    warning("barbican::api::enabled_secretstore_plugins and barbican::api::enabled_crypto_plugins \
+      will be set by puppet, but will not be used by the server whenever \
+      barbican::api::multiple_secret_stores_enabled is set to true.  Use \
+      barbican::api::enabled_secret_stores instead")
+  }
+
   # enabled plugins
   barbican_config {
     'secretstore/enabled_secretstore_plugins':             value => $enabled_secretstore_plugins;
     'crypto/enabled_crypto_plugins':                       value => $enabled_crypto_plugins;
     'certificate/enabled_certificate_plugins':             value => $enabled_certificate_plugins;
     'certificate_event/enabled_certificate_event_plugins': value => $enabled_certificate_event_plugins;
+  }
+
+  # enabled plugins when multiple plugins is enabled
+  barbican_config {
+    'secretstore/enable_multiple_secret_stores': value => $multiple_secret_stores_enabled;
+    'secretstore/stores_lookup_suffix':          value => $enabled_secret_stores;
   }
 
   # keystone config
@@ -517,8 +554,10 @@ the future release. Please use barbican::api::package_ensure instead.")
         # we need to make sure barbican-api is stopped before trying to start apache
         Service['barbican-api'] -> Service[$service_name]
       }
-    } else {
-      fail('Invalid service_name. Use barbican-api for stand-alone or httpd')
+      Service <| title == 'httpd' |> { tag +> 'barbican-service' }
+
+      # we need to make sure barbican-api is stopped before trying to start apache
+      Service['barbican-api'] -> Service[$service_name]
     }
   }
 
